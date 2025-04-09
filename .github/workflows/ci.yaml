@@ -1,0 +1,55 @@
+name: CI Workflow
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2: Install dependencies
+      - name: Install KinD and kubectl
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          sudo apt-get update && sudo apt-get install -y kubectl
+
+      # Step 3: Provision KinD cluster
+      - name: Provision KinD cluster
+        run: bash scripts/setup-kind.sh
+
+      # Step 4: Deploy resources
+      - name: Deploy resources
+        run: bash scripts/deploy.sh
+
+      # Step 5: Run load test
+      - name: Run load test
+        id: load_test
+        run: |
+          bash scripts/load-test.sh > load_test_results.txt
+
+      # Step 6: Post load test results as PR comment
+      - name: Post load test results
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('load_test_results.txt', 'utf8');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Load Test Results\n\`\`\`\n${results}\n\`\`\``
+            });
+
+      # Step 7: Clean up KinD cluster
+      - name: Clean up KinD cluster
+        if: always()
+        run: bash scripts/cleanup-kind.sh
